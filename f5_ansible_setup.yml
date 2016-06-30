@@ -1,0 +1,82 @@
+#!/usr/bin/ansible-playbook
+---
+#      f5_ansible_setup.yml
+#
+#      Playbook to download the Ansible modules, sample data files (.csv), and playbooks to run the Automation of F5 Initial Setup
+#
+#      Copyright (c) 2016 World Wide Technology, Inc.
+#      All rights reserved.
+#
+#      Author: joel.king@wwt.com, mark.wall@wwt.com
+#
+#      Usage: ansible-playbook f5_ansible_setup.yml
+#
+#        Assuming you are running this playbook from userid 'administrator'  with sudo permissions,
+#        the Ansible modules will be downloaded to /usr/share/ansible.
+#    
+#          sudo rm -rf /usr/share/ansible
+#          sudo mkdir /usr/share/ansible
+#          sudo chown administrator  /usr/share/ansible
+#          sudo chgrp administrator  /usr/share/ansible
+#
+#        The ansible.cfg file should specify the dirctory in the library variable
+#
+#          library        = /usr/share/ansible/
+#     
+#        We assume this playbook is run from ~/ansible/playbook/ and the CSV file will be
+#        stored in ~/ansible/playbook/files/
+#
+#          mkdir ~/ansible/playbooks/
+#          mkdir ~/ansible/playbooks/files/
+#          cd ~/ansible/playbooks/
+#     
+#        Save this playbook in the ~/ansible/playbooks/ directory and run it
+#
+#          ansible-playbook f5_ansible_setup.yml
+#
+#
+#      Revision history:
+#        30 June 2016      |  1.0 - added f5_initial_setup playbook
+#
+- name: Install modules to run the Automation of F5 Initial Setup playbook
+  hosts: localhost 
+  gather_facts: yes
+
+  vars:
+   path:
+     target: "/usr/share/ansible/"
+     source: "https://raw.githubusercontent.com/"
+
+   programs:
+     - {repo: "joelwking/ansible-nxapi/master/", fn: csv_to_facts.py, dn: "{{path.target}}" }
+     - {repo: "joelwking/ansible-f5/master/", fn: icontrol_install_config.py, dn: "{{path.target}}"}
+     - {repo: "mamullen13316/ansible_xls_to_facts/master/", fn: xls_to_facts.py, dn: "{{path.target}}"}
+
+   playbooks:
+     - {repo: "mwallco/f5_ansible/master/", fn: f5_initial_setup.yml, dn: "~/ansible/playbooks/"}
+
+   files:
+     - {repo: "mwallco/f5_ansible/master/", fn: f5_initial_setup.csv, dn: "~/ansible/playbooks/files/"}
+
+  tasks:
+  - name: Download the Playbook Example CSV and modules
+    uri:
+      method: GET
+      url: "{{path.source}}{{item.repo}}{{item.fn}}"
+      dest: "{{item.dn}}"
+      validate_certs: no
+    with_items: 
+      - "{{programs}}"
+      - "{{playbooks}}" 
+      - "{{files}}"
+
+  - name: chmod on modules and playbooks(s)
+    command: "/bin/chmod 755 {{item.dn}}{{item.fn}}"
+    with_items: 
+      - "{{programs}}" 
+      - "{{playbooks}}"
+
+  - name: dos2unix on the modules
+    command: "/usr/bin/dos2unix {{item.dn}}{{item.fn}}"
+    with_items: 
+      - "{{programs}}"
