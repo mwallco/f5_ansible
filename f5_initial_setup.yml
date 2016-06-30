@@ -1,0 +1,288 @@
+#!/usr/bin/ansible-playbook
+---
+#
+#      Copyright (c) 2016 World Wide Technology, Inc. 
+#      All rights reserved. 
+#
+#      author: Mark Wall  World Wide Technology
+#      short_description: Automation of F5 Initial Setup 
+#      description: Importing configuration via CSV files to automate initial configuration of F5.
+#                   This playbook will read a CSV file and perform initial F5 setup steps leaving a 
+#                   running active/standby pair.
+#
+
+- name: F5 Setup
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  vars:
+    setup_user: "admin"
+    setup_pass: "admin"
+    
+  tasks:
+  - name: Get facts from CSV file
+    csv_to_facts:
+      src: ./files/f5_initial_setup.csv
+
+  - name: Change Local Device Name A
+    icontrol_install_config: 
+      method: "_post_"
+      uri: "/mgmt/tm/cm/device"
+      body: '{"command":"mv","name":"bigip1","target":"{{item.hostname}}"}'
+      host: "{{item.appliance}}"
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+    with_items: "{{spreadsheet}}"
+    
+  - name: Change Hostname for Device A
+    icontrol_install_config: 
+      uri: "/mgmt/tm/sys/globalSettings"
+      method: PATCH
+      body: '{"hostname":"{{item.hostname}}","guiSetup":"disabled"}'     
+      host: "{{item.appliance}}"
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+    with_items: "{{spreadsheet}}"
+    when: item.primary == "yes"
+    
+  - name: Change Hostname for Device B
+    icontrol_install_config: 
+      uri: "/mgmt/tm/sys/globalSettings"
+      method: PATCH
+      body: "{'hostname':'{{item.hostname}}','guiSetup':'disabled'}"      
+      host: "{{item.appliance}}"
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+    with_items: "{{spreadsheet}}"
+    when: item.primary == "no"
+ 
+  - name: Create LACP Trunk
+    icontrol_install_config: 
+      uri: "/mgmt/tm/net/trunk"
+      body: '{"name":"{{item.trunk}}","lacp":"enabled","lacpMode":"active","lacpTimeout":"short","interfaces":["{{item.trunk_int_1}}","{{item.trunk_int_2}}"]}'
+      host: "{{item.appliance}}"
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+    with_items: "{{spreadsheet}}"
+    
+  - name: Create VLAN Internal
+    icontrol_install_config: 
+      uri: "/mgmt/tm/net/vlan"
+      body: '{"name":"{{item.vlan_int}}","tag":"{{item.vlan_int_tag}}"}'
+      host: "{{item.appliance}}"
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+    with_items: "{{spreadsheet}}"
+    
+  - name: Create VLAN External
+    icontrol_install_config: 
+      uri: "/mgmt/tm/net/vlan"
+      body: '{"name":"{{item.vlan_ext}}","tag":"{{item.vlan_ext_tag}}"}'
+      host: "{{item.appliance}}"
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+    with_items: "{{spreadsheet}}"
+
+  - name: Create VLAN HA
+    icontrol_install_config: 
+      uri: "/mgmt/tm/net/vlan"
+      body: '{"name":"{{item.vlan_ha}}","tag":"{{item.vlan_ha_tag}}"}'
+      host: "{{item.appliance}}"
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+    with_items: "{{spreadsheet}}"
+    
+  - name: Assign VLAN Internal to Interface
+    icontrol_install_config: 
+      uri: "/mgmt/tm/net/vlan/~Common~{{item.vlan_int}}/interfaces"
+      body: '{"name":"{{item.trunk}}","tagged":true}'
+      host: "{{item.appliance}}"
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+    with_items: "{{spreadsheet}}"
+
+  - name: Assign VLAN External to Interface
+    icontrol_install_config: 
+      uri: "/mgmt/tm/net/vlan/~Common~{{item.vlan_ext}}/interfaces"
+      body: '{"name":"{{item.trunk}}","tagged":true}'
+      host: "{{item.appliance}}"
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+    with_items: "{{spreadsheet}}"
+
+  - name: Assign VLAN HA to Interface
+    icontrol_install_config: 
+      uri: "/mgmt/tm/net/vlan/~Common~{{item.vlan_ha}}/interfaces"
+      body: '{"name":"{{item.trunk}}","tagged":true}'
+      host: "{{item.appliance}}"
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+    with_items: "{{spreadsheet}}"
+    
+  - name: Create Self IP External
+    icontrol_install_config: 
+      uri: "/mgmt/tm/net/self"
+      body: '{"name":"{{item.vlan_ext_selfip}}","address":"{{item.vlan_ext_selfip}}{{item.vlan_ext_selfmask}}","vlan":"/Common/{{item.vlan_ext}}","floating":"disabled","trafficGroup":"/Common/traffic-group-local-only"}'
+      host: "{{item.appliance}}"
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+    with_items: "{{spreadsheet}}"
+
+  - name: Create Self IP External Float
+    icontrol_install_config: 
+      uri: "/mgmt/tm/net/self"
+      body: '{"name":"{{item.vlan_ext_float}}","address":"{{item.vlan_ext_float}}{{item.vlan_ext_selfmask}}","vlan":"/Common/{{item.vlan_ext}}","floating":"enabled","trafficGroup":"/Common/traffic-group-1"}'
+      host: "{{item.appliance}}"
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+    with_items: "{{spreadsheet}}"
+    
+  - name: Create Self IP Internal
+    icontrol_install_config: 
+      uri: "/mgmt/tm/net/self"
+      body: '{"name":"{{item.vlan_int_selfip}}","address":"{{item.vlan_int_selfip}}{{item.vlan_int_selfmask}}","vlan":"/Common/{{item.vlan_int}}","floating":"disabled","trafficGroup":"/Common/traffic-group-local-only"}'
+      host: "{{item.appliance}}"
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+    with_items: "{{spreadsheet}}"
+
+  - name: Create Self IP Internal Float
+    icontrol_install_config: 
+      uri: "/mgmt/tm/net/self"
+      body: '{"name":"{{item.vlan_int_float}}","address":"{{item.vlan_int_float}}{{item.vlan_int_selfmask}}","vlan":"/Common/{{item.vlan_int}}","floating":"enabled","trafficGroup":"/Common/traffic-group-1"}'
+      host: "{{item.appliance}}"
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+    with_items: "{{spreadsheet}}"
+
+  - name: Create Self IP HA
+    icontrol_install_config: 
+      uri: "/mgmt/tm/net/self"
+      body: '{"name":"{{item.vlan_ha_selfip}}","address":"{{item.vlan_ha_selfip}}{{item.vlan_ha_selfmask}}","vlan":"/Common/{{item.vlan_ha}}","floating":"disabled","trafficGroup":"/Common/traffic-group-local-only"}'
+      host: "{{item.appliance}}"
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+    with_items: "{{spreadsheet}}"
+
+  - name: Create DNS Servers
+    icontrol_install_config: 
+      uri: "/mgmt/tm/sys/dns"
+      method: PATCH
+      body: '{"nameServers":["{{item.dns_server_1}}","{{item.dns_server_2}}"],"search":["{{item.domain}}"]}'
+      host: "{{item.appliance}}"
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+    with_items: "{{spreadsheet}}"
+    
+  - name: Create NTP Servers
+    icontrol_install_config: 
+      uri: "/mgmt/tm/sys/ntp"
+      method: PATCH
+      body: '{"servers":["{{item.ntp_server_1}}","{{item.ntp_server_2}}"],"timezone":"America/Chicago"}'
+      host: "{{item.appliance}}"
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+    with_items: "{{spreadsheet}}"
+
+  - name: Create Syslog Servers
+    icontrol_install_config: 
+      uri: "/mgmt/tm/sys/syslog"
+      method: PATCH
+      body: '{"remoteServers":[{"name":"remotesyslog1","host":"{{item.syslog_server}}"}]}'
+      host: "{{item.appliance}}"
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+    with_items: "{{spreadsheet}}"
+
+ 
+  - name: Change ConfigSync IP, Mirror, Unicast IP - A
+    icontrol_install_config: 
+      uri: "/mgmt/tm/cm/device/~Common~{{item.hostname}}"
+      method: PATCH
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+      host: "{{item.appliance}}"
+      body: '{"configsyncIp":"{{item.vlan_ha_selfip}}","mirrorIp":"{{item.vlan_ha_selfip}}","mirrorSecondaryIp":"{{item.vlan_int_selfip}}","unicastAddress": [{"ip": "{{item.vlan_ext_selfip}}"},{"ip": "{{item.vlan_int_selfip}}"},{"ip": "{{item.appliance}}"}]}'
+    with_items: "{{spreadsheet}}"
+    when: item.primary == "yes"
+    
+  - name: Change ConfigSync IP, Mirror, Unicast IP - B
+    icontrol_install_config: 
+      uri: "/mgmt/tm/cm/device/~Common~{{item.hostname}}"
+      method: PATCH
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+      host: "{{item.appliance}}"
+      body: '{"configsyncIp":"{{item.vlan_ha_selfip}}","mirrorIp":"{{item.vlan_ha_selfip}}","mirrorSecondaryIp":"{{item.vlan_int_selfip}}","unicastAddress": [{"ip": "{{item.vlan_ext_selfip}}"},{"ip": "{{item.vlan_int_selfip}}"},{"ip": "{{item.appliance}}"}]}'
+    with_items: "{{spreadsheet}}"
+    when: item.primary == "no"
+    
+  - name: Wait HA IP Info
+    wait_for:
+      timeout: 10
+
+
+  - name: Add Device to Local Trust
+    icontrol_install_config:
+      uri: "/mgmt/tm/cm/add-to-trust"
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+      host: "{{item.appliance}}"
+      body: '{"command":"run","name":"Root","caDevice":true,"device":"{{item.add_trust_ip}}","deviceName":"{{item.add_trust_host}}","username":"admin","password":"admin"}'   
+    with_items: "{{spreadsheet}}"
+    when: item.primary == "yes"
+
+  - name: Wait Device Trust
+    wait_for:
+      timeout: 10
+    
+  - name: Create SyncFailover Group
+    icontrol_install_config: 
+      uri: "/mgmt/tm/cm/device-group"
+      body: '{"name":"SyncFail","type":"sync-failover"}'
+      host: "{{item.appliance}}"
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+    with_items: "{{spreadsheet}}"
+
+    
+  - name: Add devices to Sync Group A
+    icontrol_install_config: 
+      uri: "/mgmt/tm/cm/device-group/~Common~SyncFail/devices"
+      body: '{"name": "{{item.hostname}}"}'
+      host: "{{item.appliance}}"
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+    with_items: "{{spreadsheet}}"
+    when: item.primary == "yes"
+    
+  - name: Add devices to Sync Group B
+    icontrol_install_config: 
+      uri: "/mgmt/tm/cm/device-group/~Common~SyncFail/devices"
+      body: '{"name": "{{item.hostname}}"}'
+      host: "{{item.appliance}}"
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+    with_items: "{{spreadsheet}}"
+    when: item.primary == "no"
+    
+  - name: Initial Config Sync
+    icontrol_install_config: 
+      uri: "mgmt/tm/cm/"
+      body: '{"command":"run","utilCmdArgs":"config-sync to-group SyncFail"}'
+      host: "{{item.appliance}}"
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+    with_items: "{{spreadsheet}}"
+    when: item.primary == "yes"
+    
+  - name: Failover B Unit
+    icontrol_install_config: 
+      uri: "mgmt/tm/sys"
+      body: '{"command":"run","utilCmdArgs": "failover standby"}'
+      host: "{{item.appliance}}"
+      username: "{{setup_user}}"
+      password: "{{setup_pass}}"
+    with_items: "{{spreadsheet}}"
+    when: item.primary == "no"                  
+        
