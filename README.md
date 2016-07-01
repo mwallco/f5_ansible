@@ -38,4 +38,4 @@ Once you have edited the CSV file to your needs, run the F5 Initial Setup Playbo
 If you want to manually install the Ansible Playbook & Modules, please check out - GitHub
 
 Tested on Version:
-12.0
+12.0 & 12.1
